@@ -1,0 +1,3 @@
+[[pages]]
+path = "pages/session_user.py"
+hidden = true
