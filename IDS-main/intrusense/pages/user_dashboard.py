@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+from datetime import datetime
 
 from common.session import require_login, require_role
 from common.sidebar import render_user_sidebar
@@ -9,7 +10,11 @@ from common.detection_utlis import detect_severity
 
 
 # ================= PAGE CONFIG =================
-st.set_page_config(page_title="IDS Security Console", layout="wide")
+st.set_page_config(
+    page_title="IDS Security Console", 
+    layout="wide",
+    page_icon="🛡️"
+)
 
 # ================= AUTH =================
 require_login()
@@ -25,331 +30,545 @@ if (
     "live_packets_df" not in st.session_state
     or st.session_state.live_packets_df.empty
 ):
-    st.info("ℹ️ Live stream has not started yet. Showing previous logs if available.")
+    st.info("ℹ️ Live stream not started. Showing previous logs if available.")
 
 # ================= LOAD DATA =================
 if "live_packets_df" in st.session_state and not st.session_state.live_packets_df.empty:
     df = st.session_state.live_packets_df.copy()
 else:
-    df = pd.DataFrame(columns=["attack", "severity"])
+    df = pd.DataFrame(columns=["attack_name", "attack_class", "severity"])
 
 # ================= METRICS =================
 total = len(df)
-attack_df = df[df["attack"] != "Normal"] if "attack" in df.columns else pd.DataFrame()
+if "attack_class" in df.columns:
+    attack_df = df[df["attack_class"] != "Normal"]
+else:
+    attack_df = pd.DataFrame()
+
 attacks = len(attack_df)
 
-high = (df.get("severity") == "High").sum()
-medium = (df.get("severity") == "Medium").sum()
+# Five severity levels
+informational = (df.get("severity") == "Informational").sum()
 low = (df.get("severity") == "Low").sum()
+medium = (df.get("severity") == "Medium").sum()
+high = (df.get("severity") == "High").sum()
+critical = (df.get("severity") == "Critical").sum()
 
 ratio = round((attacks / total) * 100, 2) if total else 0
 
 user_email = st.session_state.get("email", "user")
-user_name = user_email.split("@")[0].capitalize()
+user_name = user_email.split("@")[0].capitalize() if "@" in user_email else user_email.capitalize()
 
-# ================= GLOBAL CSS =================
+# ================= CUSTOM CSS =================
 st.markdown("""
 <style>
+/* Import Google Font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* HEADER */
-.header {
-    position: fixed;
-    top: 3.5rem;
-    left: 0;
-    right: 0;
-    height: 70px;
-    background: linear-gradient(90deg, #020617, #0f172a);
-    color: white;
+.stApp {
+    font-family: 'Inter', sans-serif;
+    background: #f8fafc;
+}
+
+/* Header - matching other pages */
+.glass-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 1.2rem 2rem;
+    border-radius: 20px;
+    margin-bottom: 2rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    padding: 0 40px;
-    z-index: 1000;
-    box-shadow: 0 4px 18px rgba(0,0,0,0.3);
+    align-items: center;
+    color: white;
 }
 
 .header-title {
-    font-size: 20px;
-    font-weight: 600;
+    font-size: 1.5rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .header-user {
-    font-size: 14px;
-    color: #cbd5f5;
+    background: rgba(255,255,255,0.2);
+    padding: 0.5rem 1.2rem;
+    border-radius: 50px;
+    font-size: 0.9rem;
+    font-weight: 500;
 }
 
-/* PAGE SPACING */
-.block-container {
-    padding-top: 140px;
-    padding-bottom: 80px;
+/* Stats Cards - Updated for 5 columns */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1rem;
+    margin: 1.5rem 0;
 }
 
-/* KPI CARDS */
-.card {
+.stat-card {
     background: white;
-    padding: 22px;
+    padding: 1rem;
     border-radius: 16px;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.08);
-    border-left: 6px solid #2563eb;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid #eef2f6;
+    border-left: 4px solid;
 }
 
-.card-title {
-    font-size: 14px;
-    color: #475569;
+.stat-card.info { border-left-color: #64748b; }
+.stat-card.low { border-left-color: #22c55e; }
+.stat-card.medium { border-left-color: #f59e0b; }
+.stat-card.high { border-left-color: #ef4444; }
+.stat-card.critical { border-left-color: #7f1d1d; }
+
+.stat-label {
+    font-size: 0.75rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-.card-value {
-    font-size: 30px;
+.stat-value {
+    font-size: 1.5rem;
     font-weight: 700;
-    margin-top: 8px;
-    color: #020617;
+    color: #1e293b;
+    margin: 0.2rem 0;
 }
 
-.card.red { border-left-color: #dc2626; }
-.card.orange { border-left-color: #f97316; }
-.card.green { border-left-color: #16a34a; }
-.card.blue { border-left-color: #2563eb; }
+.stat-desc {
+    font-size: 0.65rem;
+    color: #94a3b8;
+}
 
-/* PANELS */
-.threat-panel {
+/* Panels */
+.panel-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.threat-panel, .risk-panel {
     background: white;
-    border-radius: 22px;
-    height: 300px;
-    padding: 30px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    border-radius: 20px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid #eef2f6;
+    height: 340px;
 }
 
-.risk-visual {
-    background: linear-gradient(135deg, #020617, #0f172a);
-    color: white;
-    border-radius: 22px;
-    height: 300px;
-    padding: 36px;
-    box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+.panel-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 1.2rem;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-.risk-level {
-    font-size: 36px;
-    font-weight: 800;
+.panel-title span {
+    background: #f1f5f9;
+    padding: 0.2rem 0.8rem;
+    border-radius: 50px;
+    font-size: 0.7rem;
+    color: #64748b;
 }
 
-.risk-text {
-    font-size: 14px;
-    color: #e5e7eb;
-}
-
-/* THREAT BARS */
+/* Threat Bars - Updated for 5 severities */
 .threat-row {
-    margin-bottom: 18px;
+    margin-bottom: 0.8rem;
 }
 
 .threat-label {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
-    color: #334155;
-    margin-bottom: 6px;
+    font-size: 0.8rem;
+    color: #475569;
+    margin-bottom: 0.2rem;
 }
 
 .threat-bar {
-    height: 14px;
-    background: #e5e7eb;
+    height: 8px;
+    background: #f1f5f9;
     border-radius: 10px;
     overflow: hidden;
 }
 
 .threat-fill {
     height: 100%;
+    border-radius: 10px;
 }
 
-.high { background: #dc2626; }
-.medium { background: #f59e0b; }
-.low { background: #16a34a; }
+.threat-fill.critical { background: #7f1d1d; }
+.threat-fill.high { background: #ef4444; }
+.threat-fill.medium { background: #f59e0b; }
+.threat-fill.low { background: #22c55e; }
+.threat-fill.info { background: #64748b; }
 
-/* SESSION CTA */
-.session-cta {
-    width: 100%;
-    border-radius: 22px;
-    padding: 28px 32px;
-    box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+/* Risk Panel */
+.risk-panel {
+    background: linear-gradient(135deg, #1e293b, #0f172a);
     color: white;
 }
 
-.cta-high {
-    background: linear-gradient(135deg, #7f1d1d, #dc2626);
-}
-.cta-medium {
-    background: linear-gradient(135deg, #78350f, #f59e0b);
-}
-.cta-low {
-    background: linear-gradient(135deg, #064e3b, #10b981);
-}
-/* SESSION CTA BUTTON — REAL CARD */
-
-.session-cta-btn > button {
-    width: 100%;
-    padding: 32px 36px;
-    border-radius: 22px;
-    border: none;
-    text-align: left;
-    background: linear-gradient(135deg, #7f1d1d, #b91c1c, #dc2626);
-    color: white;
-    box-shadow: 0 18px 40px rgba(127,29,29,0.55);
-    transition: all 0.25s ease;
-    line-height: 1.4;
-    cursor: pointer;
+.risk-badge {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-.session-cta-btn > button:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 26px 60px rgba(127,29,29,0.7);
-}
-
-.session-cta-title {
-    font-size: 22px;
+.risk-level {
+    font-size: 2rem;
     font-weight: 700;
+    margin: 0.8rem 0;
 }
 
-.session-cta-sub {
-    font-size: 14px;
-    opacity: 0.9;
-    margin-top: 6px;
-}
-.card-click-wrapper {
-    position: relative;
+.risk-level.critical { color: #7f1d1d; }
+.risk-level.high { color: #ef4444; }
+.risk-level.medium { color: #f59e0b; }
+.risk-level.low { color: #22c55e; }
+.risk-level.info { color: #94a3b8; }
+
+.risk-text {
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    margin-bottom: 1rem;
 }
 
-.card-click-wrapper button {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
+.risk-tags {
+    display: flex;
+    gap: 0.8rem;
+    flex-wrap: wrap;
 }
-.white-cta-btn > button {
-    width: 100%;
+
+.risk-tag {
+    background: rgba(255,255,255,0.1);
+    padding: 0.4rem 1rem;
+    border-radius: 50px;
+    font-size: 0.75rem;
+    color: #e2e8f0;
+}
+
+/* Session CTA - Updated for 5 severities */
+.session-card {
     background: white;
-    color: #020617;
-    border-radius: 14px;
-    padding: 12px;
-    font-weight: 600;
-    border: 1px solid #e5e7eb;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    border-radius: 20px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid #eef2f6;
+    border-left: 4px solid;
 }
 
-.white-cta-btn > button:hover {
-    background: #f8fafc;
+.session-card.critical { border-left-color: #7f1d1d; }
+.session-card.high { border-left-color: #ef4444; }
+.session-card.medium { border-left-color: #f59e0b; }
+.session-card.low { border-left-color: #22c55e; }
+.session-card.info { border-left-color: #64748b; }
+
+.session-header {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 0.5rem;
 }
-.session-action-btn > button {
+
+.session-icon {
+    font-size: 1.5rem;
+}
+
+.session-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.session-desc {
+    font-size: 0.9rem;
+    color: #64748b;
+    margin-bottom: 1rem;
+}
+
+.session-stats {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.8rem;
+    color: #475569;
+}
+
+/* Button */
+.stButton > button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.8rem !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    transition: all 0.3s ease !important;
     width: 100%;
-    margin-top: 12px;
-    padding: 14px;
-    border-radius: 14px;
-    background: #ffffff;
-    color: #0f172a;
+}
+
+.stButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(102,126,234,0.3) !important;
+}
+
+/* Info message */
+.stAlert {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-left: 4px solid #667eea !important;
+    color: #1e293b !important;
+    border-radius: 12px !important;
+}
+
+/* Section titles */
+.section-title {
+    font-size: 1.1rem;
     font-weight: 600;
-    border: 1px solid #e5e7eb;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.08);
-    transition: all 0.2s ease;
+    color: #1e293b;
+    margin: 1.5rem 0 1rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-.session-action-btn > button:hover {
-    background: #f8fafc;
-    transform: translateY(-1px);
-    box-shadow: 0 10px 22px rgba(0,0,0,0.12);
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 1.5rem;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    border-top: 1px solid #e2e8f0;
+    margin-top: 2rem;
 }
 
+/* Responsive */
+@media (max-width: 1200px) {
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .panel-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ================= HEADER =================
 st.markdown(f"""
-<div class="header">
-  <div class="header-title">IDS Security Console</div>
-  <div class="header-user">Welcome, {user_name}</div>
-</div>
-""", unsafe_allow_html=True)
-
-# ================= KPI CARDS =================
-c1, c2, c3, c4 = st.columns(4)
-
-with c1:
-    st.markdown(f"<div class='card blue'><div class='card-title'>Traffic Analyzed</div><div class='card-value'>{total}</div></div>", unsafe_allow_html=True)
-with c2:
-    st.markdown(f"<div class='card orange'><div class='card-title'>Threats Detected</div><div class='card-value'>{attacks}</div></div>", unsafe_allow_html=True)
-with c3:
-    st.markdown(f"<div class='card red'><div class='card-title'>High Severity</div><div class='card-value'>{high}</div></div>", unsafe_allow_html=True)
-with c4:
-    st.markdown(f"<div class='card green'><div class='card-title'>Attack Ratio</div><div class='card-value'>{ratio}%</div></div>", unsafe_allow_html=True)
-
-# ================= DISTRIBUTION + RISK =================
-st.markdown("<br>", unsafe_allow_html=True)
-left, right = st.columns(2)
-
-with left:
-    total_events = high + medium + low or 1
-    st.markdown(f"""
-    <div class="threat-panel">
-      <div class="threat-row">
-        <div class="threat-label"><span>High</span><span>{high}</span></div>
-        <div class="threat-bar"><div class="threat-fill high" style="width:{(high/total_events)*100}%"></div></div>
-      </div>
-      <div class="threat-row">
-        <div class="threat-label"><span>Medium</span><span>{medium}</span></div>
-        <div class="threat-bar"><div class="threat-fill medium" style="width:{(medium/total_events)*100}%"></div></div>
-      </div>
-      <div class="threat-row">
-        <div class="threat-label"><span>Low</span><span>{low}</span></div>
-        <div class="threat-bar"><div class="threat-fill low" style="width:{(low/total_events)*100}%"></div></div>
-      </div>
+<div class="glass-header">
+    <div class="header-title">
+        <span>🛡️</span> IDS Security Console
     </div>
-    """, unsafe_allow_html=True)
-
-with right:
-    if high > 0:
-        level, desc, cta_class = "HIGH RISK", "Critical intrusions detected. Immediate response required.", "cta-high"
-    elif attacks > 0:
-        level, desc, cta_class = "MODERATE RISK", "Suspicious traffic detected. Monitor sessions.", "cta-medium"
-    else:
-        level, desc, cta_class = "LOW RISK", "Traffic looks clean.", "cta-low"
-
-    st.markdown(f"""
-    <div class="risk-visual">
-      <div style="font-size:14px;color:#94a3b8;">Overall Risk Status</div>
-      <div class="risk-level">{level}</div>
-      <div class="risk-text">{desc}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ================= CTA STATE (ALWAYS DEFINED) =================
-if high > 0:
-    cta_class = "cta-high"
-    subtitle = "Critical intrusions detected. Immediate response required."
-elif attacks > 0:
-    cta_class = "cta-medium"
-    subtitle = "Suspicious activity detected. Inspect session logs."
-else:
-    cta_class = "cta-low"
-    subtitle = "Traffic looks clean. View historical sessions."
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# 🔴 Session card (UI only)
-st.markdown(f"""
-<div class="session-cta {cta_class}">
-    <div class="session-cta-title"> Detection Sessions</div>
-    <div class="session-cta-sub">
-        {subtitle}
+    <div class="header-user">
+        👤 {user_name} • {datetime.now().strftime('%I:%M %p')}
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ⚪ Button BELOW the card (same width)
-st.markdown('<div class="session-action-btn">', unsafe_allow_html=True)
-go_sessions = st.button(" Click here to view sessions")
+# ================= STATS CARDS - Updated for 5 severities =================
+
+st.markdown('<div class="stats-grid">', unsafe_allow_html=True)
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
+    st.markdown(f"""
+    <div class="stat-card info">
+        <div class="stat-label">Traffic Analyzed</div>
+        <div class="stat-value">{total:,}</div>
+        <div class="stat-desc">total packets</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col2:
+    st.markdown(f"""
+    <div class="stat-card low">
+        <div class="stat-label">Informational</div>
+        <div class="stat-value">{informational}</div>
+        <div class="stat-desc">{((informational/total)*100 if total>0 else 0):.1f}% of traffic</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col3:
+    st.markdown(f"""
+    <div class="stat-card medium">
+        <div class="stat-label">Low Severity</div>
+        <div class="stat-value">{low}</div>
+        <div class="stat-desc">{((low/total)*100 if total>0 else 0):.1f}% of total</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col4:
+    st.markdown(f"""
+    <div class="stat-card high">
+        <div class="stat-label">Medium Severity</div>
+        <div class="stat-value">{medium}</div>
+        <div class="stat-desc">{((medium/total)*100 if total>0 else 0):.1f}% of total</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col5:
+    st.markdown(f"""
+    <div class="stat-card critical">
+        <div class="stat-label">High + Critical</div>
+        <div class="stat-value">{high + critical}</div>
+        <div class="stat-desc">High: {high} | Critical: {critical}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
 st.markdown('</div>', unsafe_allow_html=True)
 
-if go_sessions:
+# ================= DISTRIBUTION + RISK - Updated for 5 severities =================
+st.markdown('<div class="section-title"><span></span> Threat Analysis</div>', unsafe_allow_html=True)
+
+col_left, col_right = st.columns(2)
+
+with col_left:
+    total_events = informational + low + medium + high + critical or 1
+    info_pct = (informational/total_events)*100
+    low_pct = (low/total_events)*100
+    medium_pct = (medium/total_events)*100
+    high_pct = (high/total_events)*100
+    critical_pct = (critical/total_events)*100
+    
+    st.markdown(f"""
+    <div class="threat-panel">
+        <div class="panel-title">
+            <span></span> Severity Distribution
+            <span>live</span>
+        </div>
+        <div class="threat-row">
+            <div class="threat-label">
+                <span>⚪ Informational</span>
+                <span>{informational} ({info_pct:.1f}%)</span>
+            </div>
+            <div class="threat-bar"><div class="threat-fill info" style="width:{info_pct}%"></div></div>
+        </div>
+        <div class="threat-row">
+            <div class="threat-label">
+                <span>🟢 Low</span>
+                <span>{low} ({low_pct:.1f}%)</span>
+            </div>
+            <div class="threat-bar"><div class="threat-fill low" style="width:{low_pct}%"></div></div>
+        </div>
+        <div class="threat-row">
+            <div class="threat-label">
+                <span>🟠 Medium</span>
+                <span>{medium} ({medium_pct:.1f}%)</span>
+            </div>
+            <div class="threat-bar"><div class="threat-fill medium" style="width:{medium_pct}%"></div></div>
+        </div>
+        <div class="threat-row">
+            <div class="threat-label">
+                <span>🔴 High</span>
+                <span>{high} ({high_pct:.1f}%)</span>
+            </div>
+            <div class="threat-bar"><div class="threat-fill high" style="width:{high_pct}%"></div></div>
+        </div>
+        <div class="threat-row">
+            <div class="threat-label">
+                <span>🔥 Critical</span>
+                <span>{critical} ({critical_pct:.1f}%)</span>
+            </div>
+            <div class="threat-bar"><div class="threat-fill critical" style="width:{critical_pct}%"></div></div>
+        </div>
+        <div style="margin-top:0.8rem; padding-top:0.8rem; border-top:1px solid #eef2f6; font-size:0.8rem; color:#94a3b8;">
+            Total Events: {informational + low + medium + high + critical}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_right:
+    if critical > 0:
+        level, desc, risk_class = "CRITICAL RISK", "Critical intrusions detected - Immediate action required", "critical"
+        icon = "🔥"
+    elif high > 0:
+        level, desc, risk_class = "HIGH RISK", "Severe threats detected", "high"
+        icon = "🚨"
+    elif medium > 0:
+        level, desc, risk_class = "MODERATE RISK", "Suspicious activity detected", "medium"
+        icon = "⚠️"
+    elif low > 0:
+        level, desc, risk_class = "LOW RISK", "Minor anomalies detected", "low"
+        icon = "ℹ️"
+    else:
+        level, desc, risk_class = "INFORMATIONAL", "System is secure - No threats", "info"
+        icon = "✅"
+
+    st.markdown(f"""
+    <div class="risk-panel">
+        <div class="risk-badge">{icon} Current Status</div>
+        <div class="risk-level {risk_class}">{level}</div>
+        <div class="risk-text">{desc}</div>
+        <div class="risk-tags">
+            <span class="risk-tag">Critical: {critical}</span>
+            <span class="risk-tag">High: {high}</span>
+            <span class="risk-tag">Medium: {medium}</span>
+            <span class="risk-tag">Low: {low}</span>
+            <span class="risk-tag">Info: {informational}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ================= SESSION CARD - Updated for 5 severities =================
+if critical > 0:
+    card_class = "critical"
+    icon = "🔥"
+    title = "Critical Security Alert"
+    desc = f"{critical} critical severity threats detected"
+elif high > 0:
+    card_class = "high"
+    icon = "🚨"
+    title = "High Severity Alert"
+    desc = f"{high} high severity threats detected"
+elif medium > 0:
+    card_class = "medium"
+    icon = "⚠️"
+    title = "Suspicious Activity"
+    desc = f"{medium} medium severity threats found"
+elif low > 0:
+    card_class = "low"
+    icon = "ℹ️"
+    title = "Low Severity Events"
+    desc = f"{low} low severity events detected"
+else:
+    card_class = "info"
+    icon = "✅"
+    title = "All Clear"
+    desc = f"{informational} informational events - No active threats"
+
+st.markdown(f"""
+<div class="session-card {card_class}">
+    <div class="session-header">
+        <span class="session-icon">{icon}</span>
+        <span class="session-title">{title}</span>
+    </div>
+    <div class="session-desc">{desc}</div>
+    <div class="session-stats">
+        <span>Session logs available</span>
+        <span>Real-time updates</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ================= VIEW SESSIONS BUTTON =================
+if st.button("View Detailed Session Analysis", use_container_width=True):
     st.switch_page("pages/session_user.py")
+
+# ================= FOOTER =================
+st.markdown(f"""
+<div class="footer">
+    <span>🛡️ IDS Security Console • {datetime.now().strftime('%B %d, %Y')}</span>
+</div>
+""", unsafe_allow_html=True)
