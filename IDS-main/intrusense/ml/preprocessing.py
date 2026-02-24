@@ -1,19 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-""""
-# Map attacks into 3 categories
-def map_attack(x):
-    x = str(x).lower().strip()
-    if x == "normal":
-        return "Normal"
-    elif x in ["neptune","smurf","teardrop","pod","land","back"]:
-        return "DoS"
-    elif x in ["satan","ipsweep","portsweep","nmap"]:
-        return "Probe"
-    else:
-        return "Normal"  # fallback
-"""  
+
 def map_attack(x):
     x = str(x).lower().strip()
 
