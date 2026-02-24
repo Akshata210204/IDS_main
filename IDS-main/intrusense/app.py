@@ -244,7 +244,7 @@ def get_bg(image_path):
         return base64.b64encode(f.read()).decode()
 
 if not st.session_state.logged_in:
-    bg = get_bg("green_bg.jpg")
+    bg = get_bg(r"C:\OneDrive\Desktop\IDS-main\intrusense\green_bg.jpg")
 
     st.markdown(f"""
     <style>
@@ -308,15 +308,32 @@ if not st.session_state.logged_in:
                 else:
                     st.error("Invalid credentials")
 
+        # with tab2:
+        #     r_email = st.text_input("User Email")
+        #     r_password = st.text_input("User Password", type="password")
+
+        #     if st.button("Register", use_container_width=True):
+        #         if register_user(r_email, r_password):
+        #             st.success("Registered successfully. Please login.")
+        #         else:
+        #             st.error("Email already exists")
         with tab2:
             r_email = st.text_input("User Email")
             r_password = st.text_input("User Password", type="password")
 
             if st.button("Register", use_container_width=True):
-                if register_user(r_email, r_password):
+
+                result = register_user(r_email, r_password)
+
+                if result == True:
                     st.success("Registered successfully. Please login.")
+
+                elif result == "invalid_email":
+                    st.error("❌ Only Gmail accounts are allowed (@gmail.com)")
+
                 else:
-                    st.error("Email already exists")
+                    st.error("⚠️ Email already exists")
+
 
 
 # ---------------- AFTER LOGIN ----------------
@@ -483,5 +500,3 @@ else:
 
                 if st.button("Open User Dashboard", use_container_width=True):
                     st.switch_page("pages/user_dashboard.py")
-
-
